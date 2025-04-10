@@ -8,7 +8,7 @@ class SimulatorType(Enum):
     EPANET = "EPANET"
 
 
-class PressureSimulator:
+class WaterNetworksimulator:
     """
     A class to simulate nighttime pressure conditions in a water network using WNTR.
     """
@@ -156,6 +156,63 @@ class PressureSimulator:
                 link_pressures[link_name] = (start_pressure + end_pressure) / 2
             
         return link_pressures
+
+    def add_leak(self, node_id, leak_area, discharge_coeff=0.75, leak_type='leak'):
+        """
+        Add a leak to the specified node.
+        
+        Parameters:
+        -----------
+        node_id : str
+            ID of the node where leak will be added
+        leak_area : float
+            Area of the leak in m^2
+        discharge_coeff : float, optional
+            Discharge coefficient
+        leak_type : str, optional
+            Type of leak ('leak' or 'demand')
+        """
+        # Implementation based on WNTR documentation
+        # https://github.com/usepa/WNTR/blob/main/documentation/hydraulics.rst
+
+        raise NotImplementedError
+        
+    def add_random_demand_noise(self, mean=0.0, std_dev=0.01, percentage_of_nodes=0.2):
+        """
+        Add small random demand to a percentage of nodes.
+        
+        Parameters:
+        -----------
+        mean : float
+            Mean of the normal distribution for demand noise
+        std_dev : float
+            Standard deviation of the normal distribution for demand noise
+        percentage_of_nodes : float
+            Percentage of nodes to which noise will be added (0-1)
+        """
+        # Implementation to add small random demands        
+        raise NotImplementedError
+        
+    def simulate_with_leaks(self, leak_nodes, leak_areas, tank_fill_percent=75):
+        """
+        Run simulation with specified leaks.
+        
+        Parameters:
+        -----------
+        leak_nodes : list
+            List of node IDs where leaks will be added
+        leak_areas : list
+            List of leak areas corresponding to each node
+        tank_fill_percent : float, optional
+            Percentage of tank capacity to fill (0-100%)
+            
+        Returns:
+        --------
+        result : dict
+            Dictionary with simulation results
+        """
+        # Implementation for leak simulation
+        raise NotImplementedError
     
     def save_results(self, pressures, output_file):
         """

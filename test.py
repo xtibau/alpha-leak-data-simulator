@@ -1,5 +1,5 @@
 # Example usage
-from epanet_simulator.simulator import PressureSimulator
+from water_netowrk_simulator.simulator import PressureSimulator
 
 if __name__ == "__main__":
     # Initialize the simulator with your INP file
