@@ -1,7 +1,8 @@
 from enum import Enum
 import wntr
-import numpy as np
 import pandas as pd
+
+from wntr.network import WaterNetworkModel
 
 class SimulatorType(Enum):
     WNTRS = "WNTRS"
@@ -13,7 +14,8 @@ class WaterNetworksimulator:
     A class to simulate nighttime pressure conditions in a water network using WNTR.
     """
     
-    def __init__(self, inp_file_path):
+    def __init__(self, inp_file_path: str,
+                 sim_type: SimulatorType = SimulatorType.WNTRS) -> None:
         """
         Initialize the simulator with an INP file.
         
@@ -21,33 +23,38 @@ class WaterNetworksimulator:
         -----------
         inp_file_path : str
             Path to the EPANET INP file
+        sim_type : SimulatorType, optional
+            Type of simulator to use (WNTRS or EPANET)
         """
-        self.inp_file_path = inp_file_path
+        self.inp_file_path: str = inp_file_path
+        self.sim_type: SimulatorType = sim_type
 
         # Initialize attributes
-        self.wn = None
-        self.sim = None
+        self.wn: wntr.network.WaterNetworkModel | None = None
+        self.sim: wntr.sim.WNTRSimulator | wntr.sim.EpanetSimulator | None = None
+        self.results: wntr.sim.SimulationResults | None = None
         
         # Load the water network
+        self._set_simulator(sim_type)
         self.load_network()
 
     
-    def load_network(self):
+    def load_network(self) -> None:
         """Load the water network from the INP file."""
         try:
-            self.wn = wntr.network.WaterNetworkModel(self.inp_file_path)
+            self.wn: WaterNetworkModel = wntr.network.WaterNetworkModel(self.inp_file_path)
             print(f"Successfully loaded network from {self.inp_file_path}")
         except Exception as e:
             print(f"Error loading network: {str(e)}")
             raise
     
-    def set_zero_demands(self):
+    def set_zero_demands(self) -> None:
         """Set all junction demands to zero to simulate nighttime conditions."""
-        for junction_name, junction in self.wn.junctions():
+        for _, junction in self.wn.junctions():
             junction.demand_timeseries_list[0].base_value = 0.0
         print("All junction demands set to zero")
     
-    def set_tank_levels(self, level=None, fill_percent=None):
+    def set_tank_levels(self, level: float | None = None, fill_percent: float | None = 75) -> None:
         """
         Set tank levels for the simulation.
         
@@ -58,9 +65,6 @@ class WaterNetworksimulator:
         fill_percent : float, optional
             Percentage of tank capacity to fill (0-100%)
         """
-        if level is None and fill_percent is None:
-            # Default to 75% full if no value is specified
-            fill_percent = 75
             
         for tank_name, tank in self.wn.tanks():
             if level is not None:
@@ -80,9 +84,9 @@ class WaterNetworksimulator:
             case SimulatorType.EPANET:
                 self.sim = wntr.sim.EpanetSimulator(self.wn)
 
-    def run_steady_state(self):
+    def run_simulation(self) -> None:
         """
-        Run a steady-state hydraulic simulation.
+        Run a shydraulic simulation.
         
         Returns:
         --------
@@ -92,42 +96,11 @@ class WaterNetworksimulator:
         if self.sim is None:
             self._set_simulator()
         
-        # Run a single step (steady-state) simulation
-        results = self.sim.run_sim()
+        self.results = self.sim.run_sim()
         
-        # Extract pressure results
-        pressure = results.node['pressure']
-        
-        # If a single time step, convert to a Series
-        if isinstance(pressure, pd.DataFrame) and pressure.shape[1] == 1:
-            pressure = pressure.iloc[:, 0]
-        
-        return pressure
+        print("Simulation completed")
     
-    def simulate_night_conditions(self, tank_fill_percent=75):
-        """
-        Setup and run a simulation for nighttime conditions.
-        
-        Parameters:
-        -----------
-        tank_fill_percent : float, optional
-            Percentage of tank capacity to fill (0-100%)
-            
-        Returns:
-        --------
-        pressure_results : pandas.Series or pandas.DataFrame
-            Pressures at all junctions
-        """
-        # Prepare the network for night conditions
-        self.set_zero_demands()
-        self.set_tank_levels(fill_percent=tank_fill_percent)
-        
-        # Run the steady-state simulation
-        pressures = self.run_steady_state()
-        
-        return pressures
-    
-    def get_link_pressures(self, node_pressures):
+    def get_link_pressures(self, node_pressures: pd.Series) -> dict:
         """
         Calculate the approximate pressure at each link by averaging the pressures
         at the start and end nodes of the link.
@@ -157,7 +130,7 @@ class WaterNetworksimulator:
             
         return link_pressures
 
-    def add_leak(self, node_id, leak_area, discharge_coeff=0.75, leak_type='leak'):
+    def add_leak(self, node_id: str, leak_area: float, discharge_coeff: float = 0.75, leak_type: str = 'leak') -> None:
         """
         Add a leak to the specified node.
         
@@ -177,7 +150,7 @@ class WaterNetworksimulator:
 
         raise NotImplementedError
         
-    def add_random_demand_noise(self, mean=0.0, std_dev=0.01, percentage_of_nodes=0.2):
+    def add_random_demand_noise(self, mean: float = 0.0, std_dev: float = 0.01, percentage_of_nodes: float = 0.2) -> None:
         """
         Add small random demand to a percentage of nodes.
         
@@ -193,28 +166,8 @@ class WaterNetworksimulator:
         # Implementation to add small random demands        
         raise NotImplementedError
         
-    def simulate_with_leaks(self, leak_nodes, leak_areas, tank_fill_percent=75):
-        """
-        Run simulation with specified leaks.
-        
-        Parameters:
-        -----------
-        leak_nodes : list
-            List of node IDs where leaks will be added
-        leak_areas : list
-            List of leak areas corresponding to each node
-        tank_fill_percent : float, optional
-            Percentage of tank capacity to fill (0-100%)
-            
-        Returns:
-        --------
-        result : dict
-            Dictionary with simulation results
-        """
-        # Implementation for leak simulation
-        raise NotImplementedError
     
-    def save_results(self, pressures, output_file):
+    def save_results(self, pressures: pd.Series | pd.DataFrame | dict, output_file: str) -> None:
         """
         Save pressure results to a CSV file.
         
