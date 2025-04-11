@@ -1,4 +1,4 @@
-class LeakGenerator:
+class LeakSimulator:
     def __init__(self, water_network, simulator):
         """
         Initialize the leak generator.
