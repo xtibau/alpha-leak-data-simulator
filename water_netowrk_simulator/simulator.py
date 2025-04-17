@@ -1,8 +1,9 @@
 from enum import Enum
+import numpy as np
 import wntr
 import pandas as pd
 
-from wntr.network import WaterNetworkModel
+from wntr.network import WaterNetworkModel, Pattern
 
 class SimulatorType(Enum):
     WNTRS = "WNTRS"
@@ -15,7 +16,8 @@ class WaterNetworksimulator:
     """
     
     def __init__(self, inp_file_path: str,
-                 sim_type: SimulatorType = SimulatorType.WNTRS) -> None:
+                 sim_type: SimulatorType = SimulatorType.WNTRS,
+                 verbose: bool = False) -> None:
         """
         Initialize the simulator with an INP file.
         
@@ -28,6 +30,7 @@ class WaterNetworksimulator:
         """
         self.inp_file_path: str = inp_file_path
         self.sim_type: SimulatorType = sim_type
+        self.verbose: bool = verbose
 
         # Initialize attributes
         self.wn: wntr.network.WaterNetworkModel | None = None
@@ -35,8 +38,9 @@ class WaterNetworksimulator:
         self.results: wntr.sim.SimulationResults | None = None
         
         # Load the water network
-        self._set_simulator(sim_type)
         self.load_network()
+        self._set_simulator(sim_type)
+        
 
     
     def load_network(self) -> None:
@@ -47,12 +51,6 @@ class WaterNetworksimulator:
         except Exception as e:
             print(f"Error loading network: {str(e)}")
             raise
-    
-    def set_zero_demands(self) -> None:
-        """Set all junction demands to zero to simulate nighttime conditions."""
-        for _, junction in self.wn.junctions():
-            junction.demand_timeseries_list[0].base_value = 0.0
-        print("All junction demands set to zero")
     
     def set_tank_levels(self, level: float | None = None, fill_percent: float | None = 75) -> None:
         """
@@ -100,73 +98,65 @@ class WaterNetworksimulator:
         
         print("Simulation completed")
     
-    def get_link_pressures(self, node_pressures: pd.Series) -> dict:
-        """
-        Calculate the approximate pressure at each link by averaging the pressures
-        at the start and end nodes of the link.
         
-        Parameters:
-        -----------
-        node_pressures : pandas.Series
-            Pressures at nodes/junctions
-            
-        Returns:
-        --------
-        link_pressures : dict
-            Dictionary with link names as keys and estimated pressures as values
+    def add_random_demand_noise(self,
+                                demand_name : str = "base_demand",
+                                prob_noise: float = 0.1,
+                                min_demand: float = 0.001, 
+                                max_demand: float = 0.005) -> None:
         """
-        link_pressures = {}
-        
-        for link_name, link in self.wn.links():
-            start_node = link.start_node_name
-            end_node = link.end_node_name
-            
-            # Check if both nodes have pressure values
-            if start_node in node_pressures.index and end_node in node_pressures.index:
-                start_pressure = node_pressures[start_node]
-                end_pressure = node_pressures[end_node]
-                # Estimate link pressure as average of endpoint pressures
-                link_pressures[link_name] = (start_pressure + end_pressure) / 2
-            
-        return link_pressures
+        Assigns a random demand to each junction in the network.
+        This simulates a low base demand, representing nighttime consumption.
+        The demand is randomly generated within the specified range.
 
-    def add_leak(self, node_id: str, leak_area: float, discharge_coeff: float = 0.75, leak_type: str = 'leak') -> None:
-        """
-        Add a leak to the specified node.
-        
         Parameters:
-        -----------
-        node_id : str
-            ID of the node where leak will be added
-        leak_area : float
-            Area of the leak in m^2
-        discharge_coeff : float, optional
-            Discharge coefficient
-        leak_type : str, optional
-            Type of leak ('leak' or 'demand')
+        min_demand : float
+            Minimum demand value (m³/s).
+        max_demand : float
+            Maximum demand value (m³/s).
         """
-        # Implementation based on WNTR documentation
-        # https://github.com/usepa/WNTR/blob/main/documentation/hydraulics.rst
 
-        raise NotImplementedError
+        for junction_name, junction in self.wn.junctions():
+            if np.random.rand() < prob_noise:
+                base_demand = np.random.uniform(min_demand, max_demand)
+            else:
+                base_demand = 0.0
+            # Clear existing demand timeseries
+            junction.demand_timeseries_list.clear()
+            # Add new demand timeseries
+            junction.add_demand(base=base_demand,
+                                pattern_name=demand_name,
+                                category='noise_demand')
+
+            if self.verbose:
+                print(f"Junta {junction_name}: demanda base asignada de {base_demand:.4f} m³/s")
         
-    def add_random_demand_noise(self, mean: float = 0.0, std_dev: float = 0.01, percentage_of_nodes: float = 0.2) -> None:
+    def add_nighttime_pattern(self, pattern_name: str = "night_pattern",
+                              base_demand: int = 1) -> None:
         """
-        Add small random demand to a percentage of nodes.
-        
-        Parameters:
-        -----------
-        mean : float
-            Mean of the normal distribution for demand noise
-        std_dev : float
-            Standard deviation of the normal distribution for demand noise
-        percentage_of_nodes : float
-            Percentage of nodes to which noise will be added (0-1)
+
         """
-        # Implementation to add small random demands        
-        raise NotImplementedError
+        if self.wn is None:
+            print("Error: Water network model not loaded.")
+            return
+
+        pattern_multipliers: list = [base_demand]*6  # 6 hours of nighttime
+        self.wn.add_pattern(pattern_name, pattern_multipliers)
+        pattern = self.wn.get_pattern(pattern_name)
+        pattern.pattern_step = pd.Timedelta(hours=1)
+        pattern.start_time = pd.Timedelta(hours=0)
         
-    
+        for junction_name, junction in self.wn.junctions():
+            if junction.demand_timeseries_list:
+                junction.demand_timeseries_list[0].pattern_name = pattern_name
+            else:
+                # There is no base demand
+                raise ValueError(f"Junction {junction_name} has no base demand assigned.")
+
+        
+        if self.verbose:
+            print(f"Junctions assigned to pattern '{pattern_name}'")
+
     def save_results(self, pressures: pd.Series | pd.DataFrame | dict, output_file: str) -> None:
         """
         Save pressure results to a CSV file.

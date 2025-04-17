@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# EPANET
+temp.bin
+temp.inp
+temp.rpt
+
 # Distribution / packaging
 .Python
 build/
