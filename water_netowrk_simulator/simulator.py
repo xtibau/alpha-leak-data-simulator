@@ -27,6 +27,8 @@ class WaterNetworksimulator:
             Path to the EPANET INP file
         sim_type : SimulatorType, optional
             Type of simulator to use (WNTRS or EPANET)
+        verbose : bool, optional
+            Whether to print detailed information
         """
         self.inp_file_path: str = inp_file_path
         self.sim_type: SimulatorType = sim_type
@@ -37,20 +39,28 @@ class WaterNetworksimulator:
         self.sim: wntr.sim.WNTRSimulator | wntr.sim.EpanetSimulator | None = None
         self.results: wntr.sim.SimulationResults | None = None
         
-        # Load the water network
+        # Load the water network and setup the simulator
         self.load_network()
         self._set_simulator(sim_type)
-        
-
     
+    # Network setup and configuration methods
     def load_network(self) -> None:
         """Load the water network from the INP file."""
         try:
             self.wn: WaterNetworkModel = wntr.network.WaterNetworkModel(self.inp_file_path)
-            print(f"Successfully loaded network from {self.inp_file_path}")
+            if self.verbose:
+                print(f"Loaded network with {len(self.wn.junctions())} junctions and "
+                      f"{len(self.wn.tanks())} tanks.")
         except Exception as e:
             print(f"Error loading network: {str(e)}")
             raise
+    
+    def _set_simulator(self, sim_type: SimulatorType = SimulatorType.WNTRS) -> None:
+        match sim_type:
+            case SimulatorType.WNTRS:
+                self.sim = wntr.sim.WNTRSimulator(self.wn)
+            case SimulatorType.EPANET:
+                self.sim = wntr.sim.EpanetSimulator(self.wn)
     
     def set_tank_levels(self, level: float | None = None, fill_percent: float | None = 75) -> None:
         """
@@ -63,7 +73,6 @@ class WaterNetworksimulator:
         fill_percent : float, optional
             Percentage of tank capacity to fill (0-100%)
         """
-            
         for tank_name, tank in self.wn.tanks():
             if level is not None:
                 tank.init_level = level
@@ -73,32 +82,32 @@ class WaterNetworksimulator:
                 tank.init_level = tank.min_level + (tank_capacity * fill_percent / 100)
             
         print(f"Tank levels set for simulation")
-
-    def _set_simulator(self, sim_type: SimulatorType = SimulatorType.WNTRS) -> None:
-
-        match sim_type:
-            case SimulatorType.WNTRS:
-                self.sim = wntr.sim.WNTRSimulator(self.wn)
-            case SimulatorType.EPANET:
-                self.sim = wntr.sim.EpanetSimulator(self.wn)
-
-    def run_simulation(self) -> None:
+    
+    @property.getter
+    def nodes(self):
         """
-        Run a shydraulic simulation.
+        Get all nodes in the network.
         
         Returns:
         --------
-        pressure_results : pandas.DataFrame
-            DataFrame containing pressures at all junctions
+        list
+            List of nodes in the network
         """
-        if self.sim is None:
-            self._set_simulator()
-        
-        self.results = self.sim.run_sim()
-        
-        print("Simulation completed")
+        return self.wn.nodes()
     
+    @property.getter
+    def node_name_list(self):
+        """
+        Get all node IDs in the network.
         
+        Returns:
+        --------
+        list
+            List of node IDs in the network
+        """
+        return self.wn.node_name_list
+
+    # Demand pattern methods
     def add_random_demand_noise(self,
                                 demand_name : str = "base_demand",
                                 prob_noise: float = 0.1,
@@ -110,12 +119,16 @@ class WaterNetworksimulator:
         The demand is randomly generated within the specified range.
 
         Parameters:
-        min_demand : float
-            Minimum demand value (m³/s).
-        max_demand : float
-            Maximum demand value (m³/s).
+        -----------
+        demand_name : str, optional
+            Name for the demand pattern. Defaults to "base_demand"
+        prob_noise : float, optional
+            Probability of adding noise to a junction. Defaults to 0.1
+        min_demand : float, optional
+            Minimum demand value (m³/s). Defaults to 0.001
+        max_demand : float, optional
+            Maximum demand value (m³/s). Defaults to 0.005
         """
-
         for junction_name, junction in self.wn.junctions():
             if np.random.rand() < prob_noise:
                 base_demand = np.random.uniform(min_demand, max_demand)
@@ -130,21 +143,39 @@ class WaterNetworksimulator:
 
             if self.verbose:
                 print(f"Junta {junction_name}: demanda base asignada de {base_demand:.4f} m³/s")
-        
+    
     def add_nighttime_pattern(self, pattern_name: str = "night_pattern",
-                              base_demand: int = 1) -> None:
+                              base_demand: int = 1,
+                              pattern_hours: int = 6,
+                              start_hour: int = 0) -> None:
         """
-
+        Creates a nighttime demand pattern with constant multipliers.
+        
+        Parameters:
+        -----------
+        pattern_name : str, optional
+            Name of the pattern to create. Defaults to "night_pattern"
+        base_demand : int, optional
+            Base demand multiplier. Defaults to 1
+        pattern_hours : int, optional
+            Duration of the pattern in hours. Defaults to 6
+        start_hour : int, optional
+            Starting hour of the pattern. Defaults to 0 (midnight)
+        
+        Raises:
+        -------
+        ValueError
+            If junctions don't have base demand assigned
         """
         if self.wn is None:
             print("Error: Water network model not loaded.")
             return
 
-        pattern_multipliers: list = [base_demand]*6  # 6 hours of nighttime
+        pattern_multipliers: list = [base_demand] * pattern_hours
         self.wn.add_pattern(pattern_name, pattern_multipliers)
         pattern = self.wn.get_pattern(pattern_name)
         pattern.pattern_step = pd.Timedelta(hours=1)
-        pattern.start_time = pd.Timedelta(hours=0)
+        pattern.start_time = pd.Timedelta(hours=start_hour)
         
         for junction_name, junction in self.wn.junctions():
             if junction.demand_timeseries_list:
@@ -152,30 +183,24 @@ class WaterNetworksimulator:
             else:
                 # There is no base demand
                 raise ValueError(f"Junction {junction_name} has no base demand assigned.")
-
         
         if self.verbose:
             print(f"Junctions assigned to pattern '{pattern_name}'")
-
-    def save_results(self, pressures: pd.Series | pd.DataFrame | dict, output_file: str) -> None:
+    
+    # Simulation and results methods
+    def run_simulation(self) -> None:
         """
-        Save pressure results to a CSV file.
+        Run a hydraulic simulation.
         
-        Parameters:
-        -----------
-        pressures : pandas.Series, pandas.DataFrame, or dict
-            Pressures at nodes or links
-        output_file : str
-            Path to save the results
+        Returns:
+        --------
+        None
+            Results are stored in self.results attribute
         """
-        if isinstance(pressures, dict):
-            # Convert dictionary to DataFrame
-            df = pd.DataFrame.from_dict(pressures, orient='index', columns=['Pressure'])
-        else:
-            # Convert Series to DataFrame if needed
-            df = pressures.to_frame(name='Pressure') if isinstance(pressures, pd.Series) else pressures
+        if self.sim is None:
+            self._set_simulator()
         
-        df.index.name = 'Element'
-        df.to_csv(output_file)
-        print(f"Results saved to {output_file}")
+        self.results = self.sim.run_sim()
+        
+        print("Simulation completed")
 
