@@ -73,7 +73,7 @@ class WaterNetworksimulator:
         fill_percent : float, optional
             Percentage of tank capacity to fill (0-100%)
         """
-        for tank_name, tank in self.wn.tanks():
+        for tank_name, tank in self.wn.tanks().items():
             if level is not None:
                 tank.init_level = level
             else:
@@ -83,7 +83,7 @@ class WaterNetworksimulator:
             
         print(f"Tank levels set for simulation")
     
-    @property.getter
+    @property
     def nodes(self):
         """
         Get all nodes in the network.
@@ -95,7 +95,7 @@ class WaterNetworksimulator:
         """
         return self.wn.nodes()
     
-    @property.getter
+    @property
     def node_name_list(self):
         """
         Get all node IDs in the network.
