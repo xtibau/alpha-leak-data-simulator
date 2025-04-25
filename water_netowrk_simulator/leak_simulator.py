@@ -17,7 +17,11 @@ class LeakSimulator:
         self.simulator_without_leaks = WaterNetworksimulator(inp_file_path)
         self.simulator_with_leaks = WaterNetworksimulator(inp_file_path)
 
-        
+    """
+    We have to create a simulation, normal, then simulate some leaks
+    and then simulate the new state of the network.
+    The leaks are generated in the simulator_with_leaks instance.
+    """
     
 
     
