@@ -1,13 +1,12 @@
 import numpy as np
-import wntr
-from typing import Dict, List, Optional, Tuple, Union
-
 from .simulator import WaterNetworksimulator, SimulatorType
-from .leak_generator import LeakGenerator, LeakSeverity
 
 class LeakSimulator:
     """
     A class to simulate leaks in water networks, building on the base WaterNetworksimulator.
+    Takes two instances of the simulator: one for the baseline simulation without leaks,
+    and another for the simulation with leaks.
+
     """
     
     def __init__(self, 
@@ -29,86 +28,68 @@ class LeakSimulator:
         verbose : bool, optional
             Whether to print detailed information
         """
-        # Initialize base simulator without leaks
-        self.simulator_without_leaks = WaterNetworksimulator(inp_file_path, sim_type, verbose)
         
         # Initialize attributes
         self.inp_file_path = inp_file_path
         self.sim_type = sim_type
         self.verbose = verbose
         self.seed = seed
+
+        # Initialize base simulator without leaks
+        self.simulator_without_leaks = WaterNetworksimulator(inp_file_path, sim_type, verbose)
+        self.simulator_with_leaks = WaterNetworksimulator(inp_file_path, sim_type, verbose)
         
         if seed is not None:
             np.random.seed(seed)
-        
-        # Create a separate simulator instance for the network with leaks
-        self.simulator_with_leaks = None
-        
-        # Store results from both simulations
-        self.baseline_results = None
-        self.leak_results = None
-        
-        # Track the added leaks
-        self.leak_info = {}
-        
-    def setup_baseline_simulation(self, 
-                                 random_demand: bool = True,
-                                 prob_noise: float = 0.1,
-                                 min_demand: float = 0.001,
-                                 max_demand: float = 0.005,
-                                 pattern_hours: int = 6,
-                                 tank_fill_percent: float = 75) -> None:
+
+    def establish_leaks(self) -> None:
         """
-        Set up the baseline simulation without leaks.
-        
-        Parameters:
-        -----------
-        random_demand : bool, optional
-            Whether to add random demand noise
-        prob_noise : float, optional
-            Probability of adding noise to a junction
-        min_demand : float, optional
-            Minimum demand value (m³/s)
-        max_demand : float, optional
-            Maximum demand value (m³/s)
-        pattern_hours : int, optional
-            Duration of the demand pattern in hours
-        tank_fill_percent : float, optional
-            Percentage of tank capacity to fill
+        Decides the pipes that will be leaking.
+
         """
-        # Set tank levels
-        self.simulator_without_leaks.set_tank_levels(fill_percent=tank_fill_percent)
         
-        # Add random demand noise if requested
-        if random_demand:
-            self.simulator_without_leaks.add_random_demand_noise(
-                prob_noise=prob_noise,
-                min_demand=min_demand,
-                max_demand=max_demand
-            )
+    
+    def run_simulation(self,
+                       random_demand: bool = True,
+                       prob_noise: float = 0.1,
+                       min_demand: float = 0.001,
+                       max_demand: float = 0.005,
+                       pattern_hours: int = 6,
+                       tank_fill_percent: float = 75) -> None:
+        """
+        Runs a simulation using a simulator.
+        """
+
+        for sim in [self.simulator_without_leaks, self.simulator_with_leaks]:
+            # Set tank levels
+            sim.set_tank_levels(fill_percent=tank_fill_percent)
             
-            # Add nighttime pattern
-            self.simulator_without_leaks.add_nighttime_pattern(pattern_hours=pattern_hours)
-        
-        # Set simulation duration
-        self.simulator_without_leaks.wn.options.time.duration = pattern_hours * 3600  # seconds
-        
-        if self.verbose:
-            print("Baseline simulation setup complete")
+            # Add random demand noise if requested
+            if random_demand:
+                sim.add_random_demand_noise(
+                    prob_noise=prob_noise,
+                    min_demand=min_demand,
+                    max_demand=max_demand
+                )
+                
+                # Add nighttime pattern
+                sim.add_nighttime_pattern(pattern_hours=pattern_hours)
+
+            if self.verbose:
+                print("Baseline simulation setup complete")
+            
+            # Set simulation duration
+            sim.wn.options.time.duration = pattern_hours * 3600
+
+            sim.run_simulation()
+
     
-    def run_baseline_simulation(self) -> None:
-        """
-        Run the baseline simulation without leaks.
-        """
-        # Run the simulation
-        self.simulator_without_leaks.run_simulation()
-        
-        # Store results
-        self.baseline_results = self.simulator_without_leaks.results
-        
-        if self.verbose:
-            print("Baseline simulation completed")
-    
+
+
+
+
+class OldSimulator:    
+
     def setup_leak_simulation(self, 
                              leak_percent: float = 0.1, 
                              start_time: int = 0,

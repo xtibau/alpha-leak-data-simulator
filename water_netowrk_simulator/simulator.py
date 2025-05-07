@@ -1,14 +1,10 @@
-from enum import Enum
 import numpy as np
 import wntr
 import pandas as pd
 
-from wntr.network import WaterNetworkModel, Pattern
+from wntr.network import WaterNetworkModel
 
-class SimulatorType(Enum):
-    WNTRS = "WNTRS"
-    EPANET = "EPANET"
-
+from .enums import SimulatorType
 
 class WaterNetworksimulator:
     """
@@ -42,6 +38,7 @@ class WaterNetworksimulator:
         # Load the water network and setup the simulator
         self.load_network()
         self._set_simulator(sim_type)
+        self._get_pipes_info()
     
     # Network setup and configuration methods
     def load_network(self) -> None:
@@ -55,6 +52,33 @@ class WaterNetworksimulator:
             print(f"Error loading network: {str(e)}")
             raise
     
+    def _get_pipes_info(self) -> None:
+
+        self.pipes: dict[str, Pipe] = {}
+        for _, pipe in self.wn.pipes():
+            # Get the pipe's properties
+            pipe_name = pipe.name
+            from_node = pipe.start_node_name
+            to_node = pipe.end_node_name
+            minor_loss = pipe.minor_loss
+            check_valve = pipe.check_valve
+            length = pipe.length
+            diameter = pipe.diameter
+            roughness = pipe.roughness
+
+            # Create a Pipe object
+            self.pipes[pipe_name] = Pipe(
+                name=pipe_name,
+                from_node=from_node,
+                to_node=to_node,
+                minor_loss=minor_loss,
+                check_valve=check_valve,
+                status=PipeStatus.UNKNOWN,
+                length=length,
+                diameter=diameter,
+                roughness=roughness
+            )
+
     def _set_simulator(self, sim_type: SimulatorType = SimulatorType.WNTRS) -> None:
         match sim_type:
             case SimulatorType.WNTRS:
