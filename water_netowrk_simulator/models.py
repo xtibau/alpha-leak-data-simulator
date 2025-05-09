@@ -1,7 +1,8 @@
 from pydantic import BaseModel
 from functools import cached_property
+import numpy as np
 
-from .enums import PipeStatus, PipeMaterial
+from .enums import LeakSeverity, PipeStatus, PipeMaterial, SimulatorType
 
 class Leak(BaseModel):
     """
@@ -19,8 +20,9 @@ class Leak(BaseModel):
         Flow rate of the leak (m³/s)
     """
     name: str
+    severity: LeakSeverity
     area_percent: float
-    leak_area: float
+    area: float
 
 class Pipe(BaseModel):
     """
@@ -60,3 +62,39 @@ class Pipe(BaseModel):
             Cross-sectional area of the pipe (m²)
         """
         return np.pi * (self.diameter / 2) ** 2
+    
+class DemandNoise(BaseModel):
+    """
+    A class to represent demand noise in the water network.
+    """
+    name: str = "demand_noise"
+    prob_noise: float = 0.1
+    min_demand: float = 0.001
+    max_demand: float = 0.005
+
+class Config(BaseModel):
+    """
+    Configuration for the Simulator class.
+    
+    Attributes:
+    -----------
+    arbitrary_types_allowed : bool
+        Allow arbitrary types in the model
+    """
+    sim_type: SimulatorType = SimulatorType.WNTRS
+    tank_fill_percent: float = 75
+    demand_noise: None | dict[str, float] = None
+    night_pattern_hours: int = 6
+    severity_distribution: dict[LeakSeverity, tuple[float]] = {
+            LeakSeverity.SMALL: 0.4,
+            LeakSeverity.MEDIUM: 0.3,
+            LeakSeverity.LARGE: 0.2,
+            LeakSeverity.BURST: 0.1,
+    }
+    leak_probability: float = 0.05
+    leak_area_percent: dict[LeakSeverity, tuple[float]] = {
+            LeakSeverity.SMALL: (0.01, 0.05),
+            LeakSeverity.MEDIUM: (0.05, 0.15),
+            LeakSeverity.LARGE: (0.15, 0.3),
+            LeakSeverity.BURST: (0.3, 0.8)
+    }

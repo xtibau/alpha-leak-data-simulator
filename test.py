@@ -1,5 +1,7 @@
 # Example usage
 import wntr
+from water_netowrk_simulator.leak_simulator import LeakSimulator
+from water_netowrk_simulator.models import Config
 from water_netowrk_simulator.simulator import WaterNetworksimulator
 from water_netowrk_simulator.utils.plots import plot_junction_pressure_vs_elevation, debug_node_name_matching
 
@@ -25,9 +27,18 @@ if __name__ == "__main__":
     simulator.wn.options.time.duration = 6 * 3600  # en segundos
 
     # Run it
-    simulator.run_simulation()
+    # simulator.run_simulation()
 
     # Results
-    pressures = simulator.results.node['pressure']
+    # pressures = simulator.results.node['pressure']
 
-    plot_junction_pressure_vs_elevation(pressures, simulator.wn)
+    # plot_junction_pressure_vs_elevation(pressures, simulator.wn)
+
+    # Start the simulator
+    # Configurations
+    sim_config : Config = Config()
+
+    leak_simulator = LeakSimulator(input_file_path, sim_config)
+    leak_simulator.establish_leaks()
+    leak_simulator.add_leaks()
+    leak_simulator.run_simulation()

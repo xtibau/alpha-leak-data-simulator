@@ -2,9 +2,10 @@ import numpy as np
 import wntr
 import pandas as pd
 
+import wntr.morph.link
 from wntr.network import WaterNetworkModel
-
-from .enums import SimulatorType
+from .enums import SimulatorType, PipeStatus
+from .models import Pipe
 
 class WaterNetworksimulator:
     """
@@ -34,10 +35,11 @@ class WaterNetworksimulator:
         self.wn: wntr.network.WaterNetworkModel | None = None
         self.sim: wntr.sim.WNTRSimulator | wntr.sim.EpanetSimulator | None = None
         self.results: wntr.sim.SimulationResults | None = None
+        self.pipes: dict[str, Pipe] = None
+        self.pipes_list: list[Pipe] = None
         
         # Load the water network and setup the simulator
         self.load_network()
-        self._set_simulator(sim_type)
         self._get_pipes_info()
     
     # Network setup and configuration methods
@@ -79,6 +81,8 @@ class WaterNetworksimulator:
                 roughness=roughness
             )
 
+        self.pipes_list = list(self.pipes.values())
+
     def _set_simulator(self, sim_type: SimulatorType = SimulatorType.WNTRS) -> None:
         match sim_type:
             case SimulatorType.WNTRS:
@@ -97,7 +101,7 @@ class WaterNetworksimulator:
         fill_percent : float, optional
             Percentage of tank capacity to fill (0-100%)
         """
-        for tank_name, tank in self.wn.tanks().items():
+        for tank_name, tank in self.wn.tanks():
             if level is not None:
                 tank.init_level = level
             else:
@@ -211,8 +215,33 @@ class WaterNetworksimulator:
         if self.verbose:
             print(f"Junctions assigned to pattern '{pattern_name}'")
     
+    def add_leak(self, pipe: Pipe) -> None:
+        """
+        Add a leak to a pipe in the network.
+        
+        Parameters:
+        -----------
+        pipe : Pipe
+            Pipe object to which the leak will be added
+        
+        Returns:
+        --------
+        None
+        """
+        
+        # Add leak to the simulator
+        self.wn = wntr.morph.link.split_pipe(self.wn, 
+                                             pipe_name_to_split=pipe.name,
+                                             new_pipe_name=pipe.name + "_leak",
+                                             new_junction_name="leak_junction" + pipe.name,
+                                             add_pipe_at_end=True,
+                                             split_at_point=0.5,
+                                             return_copy=True)
+        n = self.wn.get_node("leak_junction" + pipe.name)
+        n.add_leak(self.wn, area=pipe.leak.area, start_time=0)  # TODO: Change this and 
+    
     # Simulation and results methods
-    def run_simulation(self) -> None:
+    def run_simulation(self, sim_type: SimulatorType | None = None) -> None:
         """
         Run a hydraulic simulation.
         
@@ -221,8 +250,10 @@ class WaterNetworksimulator:
         None
             Results are stored in self.results attribute
         """
-        if self.sim is None:
-            self._set_simulator()
+        if sim_type is None:
+            sim_type = self.sim_type
+
+        self._set_simulator(sim_type)
         
         self.results = self.sim.run_sim()
         
