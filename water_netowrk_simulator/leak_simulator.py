@@ -118,7 +118,7 @@ class LeakSimulator:
             # Add random demand noise if requested
             if self.config.demand_noise is not None:
                 sim.add_random_demand_noise(
-                    demand_name=self.config.demand_noise['name'],
+                    demand_name=self.config.demand_name,
                     prob_noise=self.config.demand_noise['prob_noise'],
                     min_demand=self.config.demand_noise['min_demand'],
                     max_demand=self.config.demand_noise['max_demand']

@@ -83,18 +83,19 @@ class Config(BaseModel):
     """
     sim_type: SimulatorType = SimulatorType.WNTRS
     tank_fill_percent: float = 75
+    demand_name: str = "demand"
     demand_noise: None | dict[str, float] = None
     night_pattern_hours: int = 6
-    severity_distribution: dict[LeakSeverity, tuple[float]] = {
+    severity_distribution: dict[LeakSeverity, float] = {
             LeakSeverity.SMALL: 0.4,
             LeakSeverity.MEDIUM: 0.3,
             LeakSeverity.LARGE: 0.2,
             LeakSeverity.BURST: 0.1,
     }
-    leak_probability: float = 0.05
-    leak_area_percent: dict[LeakSeverity, tuple[float]] = {
+    leak_probability: float = 0.005
+    leak_area_percent: dict[LeakSeverity, tuple[float, float]] = {
             LeakSeverity.SMALL: (0.01, 0.05),
             LeakSeverity.MEDIUM: (0.05, 0.15),
-            LeakSeverity.LARGE: (0.15, 0.3),
-            LeakSeverity.BURST: (0.3, 0.8)
+            LeakSeverity.LARGE: (0.15, 0.15),
+            LeakSeverity.BURST: (0.20, 0.45)
     }
