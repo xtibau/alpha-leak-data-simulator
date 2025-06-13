@@ -1,4 +1,6 @@
 import numpy as np
+from wntr.sim.results import SimulationResults
+
 from .simulator import WaterNetworksimulator
 from .enums import LeakSeverity
 from .models import Config, Leak, Pipe
@@ -45,6 +47,9 @@ class LeakSimulator:
         # We use the reference the same with leaks,.
         self.pies = self.simulator_with_leaks.pipes
         self.pipes_list = self.simulator_with_leaks.pipes_list
+
+        self.results: dict[str, SimulationResults] = {}
+        self.simulation_run: bool = False
         
         if seed is not None:
             np.random.seed(seed)
@@ -136,4 +141,9 @@ class LeakSimulator:
 
             sim.run_simulation()
 
-    
+        self.results_without_leaks = self.simulator_without_leaks.results
+        self.results_with_leaks = self.simulator_with_leaks.results
+
+        self.results['without_leaks'] = self.results_without_leaks
+        self.results['with_leaks'] = self.results_with_leaks
+        self.simulation_run = True

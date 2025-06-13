@@ -1,11 +1,41 @@
 import numpy as np
 import wntr
 import pandas as pd
+from functools import wraps
+from typing import Callable, Any
 
 import wntr.morph.link
 from wntr.network import WaterNetworkModel
 from .enums import SimulatorType, PipeStatus
 from .models import Pipe
+
+# Decorators
+def check_initialized(*attrs: str) -> Callable:
+    """
+    Decorator to check if specified attributes are initialized (not None).
+    
+    Parameters:
+    -----------
+    *attrs : str
+        Variable names of attributes to check
+        
+    Raises:
+    -------
+    RuntimeError
+        If any of the specified attributes is None
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(self, *args: Any, **kwargs: Any) -> Any:
+            for attr in attrs:
+                if not hasattr(self, attr) or getattr(self, attr) is None:
+                    raise RuntimeError(
+                        f"{attr} is not initialized. Make sure to call load_network() first."
+                    )
+            return func(self, *args, **kwargs)
+        return wrapper
+    return decorator
+
 
 class WaterNetworksimulator:
     """
@@ -35,8 +65,8 @@ class WaterNetworksimulator:
         self.wn: wntr.network.WaterNetworkModel | None = None
         self.sim: wntr.sim.WNTRSimulator | wntr.sim.EpanetSimulator | None = None
         self.results: wntr.sim.SimulationResults | None = None
-        self.pipes: dict[str, Pipe] = None
-        self.pipes_list: list[Pipe] = None
+        self.pipes: dict[str, Pipe] | None = None
+        self.pipes_list: list[Pipe] | None = None
         
         # Load the water network and setup the simulator
         self.load_network()
@@ -46,14 +76,13 @@ class WaterNetworksimulator:
     def load_network(self) -> None:
         """Load the water network from the INP file."""
         try:
-            self.wn: WaterNetworkModel = wntr.network.WaterNetworkModel(self.inp_file_path)
+            self.wn = wntr.network.WaterNetworkModel(self.inp_file_path)
             if self.verbose:
-                print(f"Loaded network with {len(self.wn.junctions())} junctions and "
-                      f"{len(self.wn.tanks())} tanks.")
+                print(f"Loaded network successfully")
         except Exception as e:
-            print(f"Error loading network: {str(e)}")
-            raise
-    
+            print(f"Error loading network from {self.inp_file_path}: {e}")
+                
+    @check_initialized("wn")            
     def _get_pipes_info(self) -> None:
 
         self.pipes: dict[str, Pipe] = {}
@@ -101,7 +130,7 @@ class WaterNetworksimulator:
         fill_percent : float, optional
             Percentage of tank capacity to fill (0-100%)
         """
-        for tank_name, tank in self.wn.tanks():
+        for _, tank in self.wn.tanks():
             if level is not None:
                 tank.init_level = level
             else:

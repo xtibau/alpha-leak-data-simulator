@@ -4,6 +4,35 @@ import numpy as np
 
 from .enums import LeakSeverity, PipeStatus, PipeMaterial, SimulatorType
 
+class Node(BaseModel):
+    """
+    A class to represent a node in the water network.
+    
+    Attributes:
+    -----------
+    name : str
+        Name of the node
+    elevation : float
+        Elevation of the node (m)
+    type : int
+        Type of the node (1: junction, 2 tank, 2: reservoir)
+    theorical_pressure : float
+        Theoretical pressure at the node
+    observed_pressure : float
+        Observed pressure at the node
+    """    
+    name: str
+    elevation: float
+    type: int | None = None  # 1: junction, 2: tank, 3: reservoir
+    head_mean: float | None = None  # Head at the node, used for tanks and reservoirs
+    head_std: float | None = None 
+    theoretical_pressure_mean: float | None = None
+    theoretical_pressure_std: float | None = None
+    observed_pressure_mean: float | None = None
+    observed_pressure_std: float | None = None
+
+
+
 class Leak(BaseModel):
     """
     A class to represent a leak in the water network.

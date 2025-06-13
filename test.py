@@ -4,6 +4,7 @@ from water_netowrk_simulator.leak_simulator import LeakSimulator
 from water_netowrk_simulator.models import Config
 from water_netowrk_simulator.simulator import WaterNetworksimulator
 from water_netowrk_simulator.utils.plots import plot_junction_pressure_vs_elevation, debug_node_name_matching
+from water_netowrk_simulator.dataset.dataset import Dataset
 
 
 if __name__ == "__main__":
@@ -42,3 +43,7 @@ if __name__ == "__main__":
     leak_simulator.establish_leaks()
     leak_simulator.add_leaks()
     leak_simulator.run_simulation()
+
+    dt = Dataset(simulator=leak_simulator)
+    
+    dt.nodes
