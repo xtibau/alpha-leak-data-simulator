@@ -32,6 +32,30 @@ class PipeMaterial(Enum):
 
     def __str__(self):
         return self.value
+    
+    def to_int(self) -> int:
+        """
+        Convert the material type to an integer representation.
+        
+        Returns:
+        --------
+        int
+            Integer code for the material type, starting from 0 for UNKNOWN
+        """
+        # Define mapping of materials to integers
+        material_to_int: dict[PipeMaterial, int] = {
+            PipeMaterial.UNKNOWN: 0,
+            PipeMaterial.PVC: 1,
+            PipeMaterial.POLYETHYLENE: 2,
+            PipeMaterial.IRON: 3,
+            PipeMaterial.CAST_IRON: 4,
+            PipeMaterial.DUCTILE_IRON: 5,
+            PipeMaterial.STEEL: 6,
+            PipeMaterial.CONCRETE: 7,
+            PipeMaterial.ASBESTOS_CEMENT: 8,
+            PipeMaterial.OTHER: 9
+        }
+        return material_to_int[self]
 
 class LeakSeverity(Enum):
     SMALL = "small"

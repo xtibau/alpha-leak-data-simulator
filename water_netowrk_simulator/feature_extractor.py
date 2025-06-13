@@ -1,40 +1,18 @@
+from water_netowrk_simulator.dataset.dataset import Dataset
+
+
 class FeatureExtractor:
-    def __init__(self, water_network):
+    def __init__(self, dataset: Dataset):
         """
         Initialize the feature extractor.
+        The feature extractor must create the features of the network. 
         
         Parameters:
         -----------
         water_network : wntr.network.WaterNetworkModel
             Water network model
         """
-        self.wn = water_network
-        
-    def extract_node_features(self, simulation_results=None):
-        """
-        Extract features for all nodes.
-        
-        Parameters:
-        -----------
-        simulation_results : wntr.sim.results.SimulationResults, optional
-            Results from a simulation
-            
-        Returns:
-        --------
-        node_features : pandas.DataFrame
-            DataFrame with node features
-        """
-        # Extract features such as:
-        # - Altitude (elevation)
-        # - Head
-        # - Type (Reservoir, Tank, Junction)
-        # - Minor-loss
-        # - Theoretical pressure
-        # - True pressure
-        # - Flow (cabal)
-        # - Other INP file features
-
-        raise NotImplementedError
+        self.dataset = dataset
         
     def extract_link_features(self, simulation_results=None):
         """

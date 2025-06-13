@@ -2,9 +2,11 @@ from pydantic import BaseModel, ConfigDict
 from functools import cached_property
 import polars as pl
 from wntr.network.elements import Junction, Tank, Reservoir
+import torch
 
 from alpha_leak_data.data import AlphaLeakData
 
+from water_netowrk_simulator.enums import PipeMaterial
 from water_netowrk_simulator.leak_simulator import LeakSimulator
 
 from ..models import Node, Pipe
@@ -16,11 +18,6 @@ class Dataset(BaseModel):
     simulator: LeakSimulator
     nodes: dict[str, Node] = {}
     pipes: dict[str, Pipe] = {}
-    # nodes_list: list[Node]
-    # pipes_list: list[Pipe]
-    # network: wntr.network.WaterNetworkModel
-    # stable_results: wntr.sim.SimulationResults
-    # leak_results: wntr.sim.SimulationResults
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -125,7 +122,125 @@ class Dataset(BaseModel):
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
 
+    def _create_edge_index(self) -> tuple[torch.Tensor, list[tuple[str, str]]]:
+        """
+        Creates the edge_index tensor for PyG and keeps track of node names.
+        
+        The edge_index tensor represents the connectivity of the network where each column
+        represents an edge [from_node, to_node]. For water networks, we create bidirectional
+        edges since water can flow in both directions.
+        
+        Returns:
+        --------
+        tuple[torch.Tensor, list[tuple[str, str]]]
+            - torch.Tensor: Edge index tensor of shape (2, num_edges)
+            - list[tuple[str, str]]: List of (from_node, to_node) name pairs in the same order
+        """
+        # Create node name to index mapping
+        node_to_idx = {name: idx for idx, name in enumerate(self.nodes.keys())}
+        
+        edge_list = []  # Will store [from_idx, to_idx] pairs
+        edge_names = []  # Will store (from_name, to_name) pairs
+        
+        # Iterate through pipes to create edges
+        for pipe in self.pipes.values():
+            from_idx = node_to_idx[pipe.from_node]
+            to_idx = node_to_idx[pipe.to_node]
+            
+            # Add forward edge
+            edge_list.append([from_idx, to_idx])
+            edge_names.append((pipe.from_node, pipe.to_node))
+            
+            # Add backward edge (unless it's a check valve)
+            if not pipe.check_valve:
+                edge_list.append([to_idx, from_idx])
+                edge_names.append((pipe.to_node, pipe.from_node))
+        
+        # Convert to tensor of shape (2, num_edges)
+        edge_index = torch.tensor(edge_list, dtype=torch.long).t()
+        
+        return edge_index, edge_names
 
+    @cached_property
+    def edge_index(self) -> torch.Tensor:
+        """Get the edge index tensor for PyG."""
+        edge_index, _ = self._create_edge_index()
+        return edge_index
+
+    @cached_property
+    def edge_names(self) -> list[tuple[str, str]]:
+        """Get the list of edge names in the same order as edge_index."""
+        _, edge_names = self._create_edge_index()
+        return edge_names
+    
+    @cached_property
+    def edge_attr(self) -> torch.Tensor:
+        """
+        Get the edge attributes tensor for PyG.
+        
+        Edge attributes include:
+        - length
+        - diameter
+        - roughness
+        - material_code (encoded as an integer)
+        - status_code (encoded as an integer)
+        
+        Returns:
+        --------
+        torch.Tensor
+            Edge attributes tensor of shape (num_edges, num_features)
+        """
+        return self._create_edge_attributes()
+
+    def _create_edge_attributes(self) -> torch.Tensor:
+        """
+        Creates the edge attributes tensor for PyG.
+        
+        Edge attributes are organized as:
+        [length, diameter, roughness, material_code, status_code]
+        
+        Returns:
+        --------
+        torch.Tensor
+            Edge attributes tensor of shape (num_edges, num_features)
+        """
+        edge_names = self.edge_names  # Get cached edge names
+        edge_attrs: list[list[float]] = []
+        
+        for from_node, to_node in edge_names:
+            # Find the corresponding pipe
+            pipe = None
+            for p in self.pipes.values():
+                if (p.from_node == from_node and p.to_node == to_node) or \
+                   (not p.check_valve and p.from_node == to_node and p.to_node == from_node):
+                    pipe = p
+                    break
+            
+            if pipe is None:
+                raise ValueError(f"No pipe found between {from_node} and {to_node}")
+            
+            # Use the new to_int() method for material encoding
+            material_code = pipe.material.to_int() if pipe.material else PipeMaterial.UNKNOWN.to_int()
+            
+            # Create feature vector for this edge
+            edge_attr = [
+                float(pipe.length),
+                float(pipe.diameter),
+                float(pipe.roughness),
+                float(material_code),
+                float(pipe.status.value)  # PipeStatus is still an IntEnum
+            ]
+            edge_attrs.append(edge_attr)
+        
+        return torch.tensor(edge_attrs, dtype=torch.float)
+
+
+MISSING 
+Distance Matrix: Contains shortest path distances between nodes
+
+Edge Paths: Contains the sequence of edge IDs along the shortest path between nodes
+
+Sensor Mask: Binary mask indicating which nodes have sensor measurements
 
 """
 We need to create the dataset for the leak simulator.
@@ -155,4 +270,3 @@ The dataset class In the repo of the data has to be able to permutate itself
 
 
 
- 
