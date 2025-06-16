@@ -437,7 +437,7 @@ class Dataset(BaseModel):
                 float(pipe.diameter),
                 float(pipe.roughness),
                 float(material_code),
-                float(pipe.status.value)  # PipeStatus is still an IntEnum
+                float(pipe.status.to_int())  # Use to_int() method for status encoding
             ]
             edge_attrs.append(edge_attr)
         

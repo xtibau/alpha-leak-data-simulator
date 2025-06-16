@@ -16,6 +16,22 @@ class PipeStatus(Enum):
 
     def __str__(self):
         return self.value
+    
+    def to_int(self) -> int:
+        """
+        Convert the pipe status to an integer representation.
+        
+        Returns:
+        --------
+        int
+            Integer code for the pipe status: 0=closed, 1=open, -1=unknown
+        """
+        status_to_int: dict[PipeStatus, int] = {
+            PipeStatus.CLOSED: 0,
+            PipeStatus.OPEN: 1,
+            PipeStatus.UNKNOWN: -1
+        }
+        return status_to_int[self]
 
 # On the futer to consider changes of leak from material type.
 class PipeMaterial(Enum):
