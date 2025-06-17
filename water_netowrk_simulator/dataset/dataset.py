@@ -125,29 +125,71 @@ class EdgePaths:
             from_node = node_path[i]
             to_node = node_path[i + 1]
             
-            # Try both directions for the edge
-            edge = (from_node, to_node)
-            reverse_edge = (to_node, from_node)
-            
-            if edge in self.edge_to_idx:
-                edge_indices.append(self.edge_to_idx[edge])
-            elif reverse_edge in self.edge_to_idx:
-                edge_indices.append(self.edge_to_idx[reverse_edge])
-            else:
+            # Use normalized edge lookup for undirected graph
+            edge_idx = self._get_normalized_edge_idx(from_node, to_node)
+            if edge_idx is None:
                 raise ValueError(f"Edge between {from_node} and {to_node} not found")
+            edge_indices.append(edge_idx)
                 
         return edge_indices
+    
+    def _get_normalized_edge_idx(self, node1: str, node2: str) -> int | None:
+        """
+        Get edge index for undirected edge, trying both directions efficiently.
+        
+        Args:
+        -----
+        node1, node2 : str
+            Node names forming the edge
+            
+        Returns:
+        --------
+        int | None
+            Edge index if found, None otherwise
+        """
+        # Try both directions efficiently using dict.get()
+        edge = (node1, node2)
+        reverse_edge = (node2, node1)
+        
+        return self.edge_to_idx.get(edge) or self.edge_to_idx.get(reverse_edge)
+    
+    def _normalize_edge_pair(self, node1: str, node2: str) -> tuple[str, str]:
+        """
+        Normalize edge pair for consistent ordering in undirected graphs.
+        
+        Args:
+        -----
+        node1, node2 : str
+            Node names forming the edge
+            
+        Returns:
+        --------
+        tuple[str, str]
+            Normalized edge pair (smaller node name first)
+        """
+        return (node1, node2) if node1 < node2 else (node2, node1)
         
     def get_path(self, from_idx: int, to_idx: int) -> list[int] | None:
         """
         Get shortest path between two node indices.
+        For undirected graphs, tries both directions if needed.
         
         Returns:
         --------
         list[int] | None
             List of edge indices or None if no path exists
         """
-        return self.paths.get((from_idx, to_idx))
+        # Try direct path first
+        path = self.paths.get((from_idx, to_idx))
+        if path is not None:
+            return path
+            
+        # For undirected graphs, try reverse path and reverse it
+        reverse_path = self.paths.get((to_idx, from_idx))
+        if reverse_path is not None:
+            return list(reversed(reverse_path))
+            
+        return None
         
     def to_dense_tensor(self, max_path_length: int) -> torch.Tensor:
         """
