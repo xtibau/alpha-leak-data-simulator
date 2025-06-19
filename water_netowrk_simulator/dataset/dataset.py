@@ -5,6 +5,7 @@ from wntr.network.elements import Junction, Tank, Reservoir
 import torch
 import networkx as nx
 import numpy as np
+from abc import ABC, abstractmethod
 
 from alpha_leak_data.data import AlphaLeakData
 
@@ -260,103 +261,73 @@ class EdgePaths:
             "disconnected_pairs": len([p for p in self.paths.values() if p is None])
         }
 
-class Dataset(BaseModel):
-    """
-    Dataset class to hold the dataset information.
-    """
-    simulator: LeakSimulator
-    nodes: dict[str, Node] = {}
-    pipes: dict[str, Pipe] = {}
-    max_path_length: int = 20
-    max_nodes_for_edge_paths: int = 50
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class BaseDataset(ABC):
 
-    def model_post_init(self, __context) -> None:
+    def __init__(self, simulator: LeakSimulator, 
+                 nodes: dict[str, Node] | None = None,
+                 pipes: dict[str, Pipe] | None = None,
+                 max_path_length: int = 20,
+                 max_nodes_for_edge_paths: int = 50) -> None:
+        
+        """        Base class for datasets used in leak detection simulations.
+        Args:
+            simulator (LeakSimulator): The leak simulator instance.
+            nodes (dict[str, Node]): Dictionary of Node objects.
+            pipes (dict[str, Pipe]): Dictionary of Pipe objects.
+            max_path_length (int, optional): Maximum path length for edge paths. Defaults to 20.
+            max_nodes_for_edge_paths (int, optional): Maximum nodes allowed for edge paths computation. Defaults to 50.
+        """
+        self.simulator = simulator
+        self.nodes = nodes
+        self.pipes = pipes
+        self.max_path_length = max_path_length
+        self.max_nodes_for_edge_paths = max_nodes_for_edge_paths
+
+    def model_post_init(self) -> None:
         """Initialize nodes and pipes after model creation."""
-        # __context no se utiliza en esta implementación
+        
         if not self.simulator.simulation_run:
             raise ValueError("Simulation has not been run yet. Please run the simulation before creating the dataset.")
+        
         # Get nodes and pipes from the simulator
         self._get_nodes()
         self._get_pipes()
 
+    @abstractmethod
     def _get_nodes(self) -> None:
         """
-        Get the nodes in the water network.
+        Abstract method to get nodes in the water network.
+        This method should be implemented in subclasses to extract node information.
         """
-        if self.simulator.results is None:
-            raise ValueError("Simulation has not been run yet. Please run the simulation before getting nodes.")
-
-        self.nodes = {}
-        for node_name, wn_node in self.simulator.simulator_without_leaks.nodes:
-            # Get elevation, using 0 as default for nodes without elevation (like reservoirs)
-            # theorical_pressure = self.simulator.results.node['pressure'][node_name]
-            # observed_pressure = self.simulator.leak_results.node_pressure(node_name)
-            n_type = self._return_wntr_element_type(wn_node)
-            head_mean = self.simulator.results['without_leaks'].node['head'][node_name].mean()
-            head_std = self.simulator.results['without_leaks'].node['head'][node_name].std()
-            theoretical_pressure_mean = self.simulator.results['without_leaks'].node['pressure'][node_name].mean()
-            theoretical_pressure_std = self.simulator.results['without_leaks'].node['pressure'][node_name].std()
-            observed_pressure_mean = self.simulator.results['with_leaks'].node['pressure'][node_name].mean()
-            observed_pressure_std = self.simulator.results['with_leaks'].node['pressure'][node_name].std()
-
-            elevation = getattr(wn_node, 'elevation', 0.0)
-            self.nodes[node_name] = Node(
-                name=node_name,
-                type=n_type,  # 1: junction, 2: tank, 3: reservoir
-                elevation=elevation,
-                head_mean=head_mean,
-                head_std=head_std,
-                theoretical_pressure_mean=theoretical_pressure_mean,
-                theoretical_pressure_std=theoretical_pressure_std,
-                observed_pressure_mean=observed_pressure_mean,
-                observed_pressure_std=observed_pressure_std
-            )
-
+        raise NotImplementedError("Subclasses must implement _get_nodes method.")
+    
+    @abstractmethod
     def _get_pipes(self) -> None:
         """
-        Get the pipes in the water network.
+        Abstract method to get pipes in the water network.
+        This method should be implemented in subclasses to extract pipe information.
         """
-        self.pipes = self.simulator.simulator_without_leaks.pipes
+        raise NotImplementedError("Subclasses must implement _get_pipes method.")
 
     @property
+    @abstractmethod
     def results(self) -> None:
         """
-        Get the results of the simulation.
+        Abstract property to get the results of the simulation.
+        This should be implemented in subclasses to return simulation results.
         """
-        self.simulator.results
+        raise NotImplementedError("Subclasses must implement results property.")
 
     @property
+    @abstractmethod
     def node_name_list(self) -> list[str]:
         """
-        List of node names in the water network.
+        Abstract property to get the list of node names in the water network.
+        This should be implemented in subclasses to return node names.
         """
-        return self.simulator.simulator_without_leaks.node_name_list
+        raise NotImplementedError("Subclasses must implement node_name_list property.")
 
-    @property
-    def x(self) -> pl.DataFrame:
-        """
-        `x`has three features:
-          - type: int
-          - elevation: float
-          - head_mean: float
-          - head_std: float
-          - theorical_pressure_mean: float
-          - theorical_pressure_std: float
-          - observed_pressure_mean: float
-          - observed_pressure_std: float
-        """
-        return pl.DataFrame({
-            "elevation": [node.elevation for node in self.nodes.values()],
-            "type": [node.type for node in self.nodes.values()],
-            "head_mean": [node.head_mean for node in self.nodes.values()],  # From without leaks
-            "head_std": [node.head_std for node in self.nodes.values()],  # From without leaks
-            "theoretical_pressure_mean": [node.theoretical_pressure_mean for node in self.nodes.values()],
-            "theoretical_pressure_std": [node.theoretical_pressure_std for node in self.nodes.values()],
-            "observed_pressure_mean": [node.observed_pressure_mean for node in self.nodes.values()],
-            "observed_pressure_std": [node.observed_pressure_std for node in self.nodes.values()]
-        })
 
     @staticmethod
     def _return_wntr_element_type(node: Junction | Tank | Reservoir) -> int:
@@ -372,7 +343,7 @@ class Dataset(BaseModel):
             return 3
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
-
+    
     def _create_edge_index(self) -> tuple[torch.Tensor, list[tuple[str, str]]]:
         """
         Creates the edge_index tensor for PyG and keeps track of node names.
@@ -413,17 +384,17 @@ class Dataset(BaseModel):
         return edge_index, edge_names
 
     @cached_property
-    def edge_index(self) -> torch.Tensor:
-        """Get the edge index tensor for PyG."""
-        edge_index, _ = self._create_edge_index()
-        return edge_index
-
-    @cached_property
     def edge_names(self) -> list[tuple[str, str]]:
         """Get the list of edge names in the same order as edge_index."""
         _, edge_names = self._create_edge_index()
         return edge_names
     
+    @cached_property
+    def edge_index(self) -> torch.Tensor:
+        """Get the edge index tensor for PyG."""
+        edge_index, _ = self._create_edge_index()
+        return edge_index
+
     @cached_property
     def edge_attr(self) -> torch.Tensor:
         """
@@ -518,8 +489,7 @@ class Dataset(BaseModel):
         
         return G
 
-    @cached_property
-    def dist_matrix(self) -> torch.Tensor:
+    def _dist_matrix_original(self) -> torch.Tensor:
         """
         Get the distance matrix containing shortest path distances between all node pairs.
         
@@ -603,7 +573,111 @@ class Dataset(BaseModel):
         # Create and return EdgePaths object
         return EdgePaths(G, node_names, edge_names, max_nodes=self.max_nodes_for_edge_paths)
     
-    def get_edge_paths_tensor(self, max_path_length: int | None = None) -> torch.Tensor:
+    @property
+    def x(self) -> pl.DataFrame:
+        """
+        `x`has three features:
+          - type: int
+          - elevation: float
+          - head_mean: float
+          - head_std: float
+          - theorical_pressure_mean: float
+          - theorical_pressure_std: float
+          - observed_pressure_mean: float
+          - observed_pressure_std: float
+        """
+        return pl.DataFrame({
+            "elevation": [node.elevation for node in self.nodes.values()],
+            "type": [node.type for node in self.nodes.values()],
+            "head_mean": [node.head_mean for node in self.nodes.values()],  # From without leaks
+            "head_std": [node.head_std for node in self.nodes.values()],  # From without leaks
+            "theoretical_pressure_mean": [node.theoretical_pressure_mean for node in self.nodes.values()],
+            "theoretical_pressure_std": [node.theoretical_pressure_std for node in self.nodes.values()],
+            "observed_pressure_mean": [node.observed_pressure_mean for node in self.nodes.values()],
+            "observed_pressure_std": [node.observed_pressure_std for node in self.nodes.values()]
+        })
+
+
+class Dataset(BaseDataset):
+    """
+    Dataset class to hold the dataset information.
+    """
+
+    def __init__(self,
+                 simulator: LeakSimulator,
+                 nodes: dict[str, Node] | None = None,
+                 pipes: dict[str, Pipe] | None = None,
+                 max_path_length: int = 20,
+                 mmax_nodes_for_edge_paths: int = 50) -> None:
+        """ Initialize the Dataset with a LeakSimulator instance and extract nodes and pipes.
+        """
+        super().__init__(simulator=simulator, nodes=nodes, pipes=pipes,
+                         max_path_length=max_path_length,
+                         max_nodes_for_edge_paths=mmax_nodes_for_edge_paths)
+        
+        self.model_post_init()
+        
+    
+        # Private attributes for partition optimization #TODO: Move to PartitionedDataset
+        _original_dataset: 'Dataset | None' = None
+        _node_index_mapping: list[int] | None = None
+
+    def _get_nodes(self) -> None:
+        """
+        Get the nodes in the water network.
+        """
+        if self.simulator.results is None:
+            raise ValueError("Simulation has not been run yet. Please run the simulation before getting nodes.")
+
+        self.nodes = {}
+        for node_name, wn_node in self.simulator.simulator_without_leaks.nodes:
+            # Get elevation, using 0 as default for nodes without elevation (like reservoirs)
+            # theorical_pressure = self.simulator.results.node['pressure'][node_name]
+            # observed_pressure = self.simulator.leak_results.node_pressure(node_name)
+            n_type = self._return_wntr_element_type(wn_node)
+            head_mean = self.simulator.results['without_leaks'].node['head'][node_name].mean()
+            head_std = self.simulator.results['without_leaks'].node['head'][node_name].std()
+            theoretical_pressure_mean = self.simulator.results['without_leaks'].node['pressure'][node_name].mean()
+            theoretical_pressure_std = self.simulator.results['without_leaks'].node['pressure'][node_name].std()
+            observed_pressure_mean = self.simulator.results['with_leaks'].node['pressure'][node_name].mean()
+            observed_pressure_std = self.simulator.results['with_leaks'].node['pressure'][node_name].std()
+
+            elevation = getattr(wn_node, 'elevation', 0.0)
+            self.nodes[node_name] = Node(
+                name=node_name,
+                type=n_type,  # 1: junction, 2: tank, 3: reservoir
+                elevation=elevation,
+                head_mean=head_mean,
+                head_std=head_std,
+                theoretical_pressure_mean=theoretical_pressure_mean,
+                theoretical_pressure_std=theoretical_pressure_std,
+                observed_pressure_mean=observed_pressure_mean,
+                observed_pressure_std=observed_pressure_std
+            )
+
+    def _get_pipes(self) -> None:
+        """
+        Get the pipes in the water network.
+        """
+        self.pipes = self.simulator.simulator_without_leaks.pipes
+
+    @property
+    def results(self) -> None:
+        """
+        Get the results of the simulation.
+        """
+        self.simulator.results
+
+    @property
+    def node_name_list(self) -> list[str]:
+        """
+        List of node names in the water network.
+        """
+        return self.simulator.simulator_without_leaks.node_name_list
+
+
+
+    def _get_edge_paths_tensor_original(self, max_path_length: int | None = None) -> torch.Tensor:
         """
         Get edge paths as dense tensor with specified maximum path length.
         
@@ -621,7 +695,35 @@ class Dataset(BaseModel):
         if max_path_length is None:
             max_path_length = self.max_path_length
         return self.edge_paths.to_dense_tensor(max_path_length)
+        """
+        Create mapping from partition node indices to original dataset indices.
+        This allows efficient reuse of computed properties like distance matrices.
+        """
+        if self._original_dataset is None:
+            return
+            
+        # Create mapping: partition_node_idx -> original_node_idx
+        original_node_names = list(self._original_dataset.nodes.keys())
+        partition_node_names = list(self.nodes.keys())
+        
+        original_name_to_idx = {name: idx for idx, name in enumerate(original_node_names)}
+        
+        self._node_index_mapping = []
+        for partition_name in partition_node_names:
+            if partition_name in original_name_to_idx:
+                self._node_index_mapping.append(original_name_to_idx[partition_name])
+            else:
+                raise ValueError(f"Node {partition_name} not found in original dataset")
+    
 
+class PartitionedDataset(BaseDataset):
+    """
+    Dataset class for partitioned water networks.
+    
+    This class allows creating datasets from partitions of the original water network,
+    enabling efficient processing of large networks by splitting them into smaller components.
+    
+    """
 
 # MISSING
 

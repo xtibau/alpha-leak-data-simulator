@@ -5,7 +5,7 @@ from water_netowrk_simulator.models import Config
 from water_netowrk_simulator.simulator import WaterNetworksimulator
 from water_netowrk_simulator.utils.plots import plot_junction_pressure_vs_elevation, debug_node_name_matching
 from water_netowrk_simulator.dataset.dataset import Dataset
-
+from water_netowrk_simulator.dataset.dataset_partitioner import DatasetPartitioner
 
 if __name__ == "__main__":
     
