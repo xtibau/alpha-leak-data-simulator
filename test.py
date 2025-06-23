@@ -25,7 +25,7 @@ if __name__ == "__main__":
     simulator.add_nighttime_pattern()
 
     # Simulation for 6 hours
-    simulator.wn.options.time.duration = 6 * 3600  # en segundos
+    simulator.wn.options.time.duration = 1 * 3600  # en segundos
 
     # Run it
     # simulator.run_simulation()
@@ -47,3 +47,10 @@ if __name__ == "__main__":
     dt = Dataset(simulator=leak_simulator)
     
     dt.nodes
+
+    partitioner = DatasetPartitioner(dt)
+    p = partitioner.do_partition()
+    print(f"Number of partitions created: {len(p)}")
+
+    p0 = p[0]
+    p[0].plot_graph()

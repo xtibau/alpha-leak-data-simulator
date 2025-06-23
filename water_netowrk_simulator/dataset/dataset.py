@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from copy import deepcopy
 from functools import cached_property
 import polars as pl
 from wntr.network.elements import Junction, Tank, Reservoir
@@ -6,8 +6,7 @@ import torch
 import networkx as nx
 import numpy as np
 from abc import ABC, abstractmethod
-
-from alpha_leak_data.data import AlphaLeakData
+from wntr.sim.results import SimulationResults
 
 from water_netowrk_simulator.enums import PipeMaterial
 from water_netowrk_simulator.leak_simulator import LeakSimulator
@@ -310,9 +309,9 @@ class BaseDataset(ABC):
         """
         raise NotImplementedError("Subclasses must implement _get_pipes method.")
 
-    @property
+    @cached_property
     @abstractmethod
-    def results(self) -> None:
+    def results(self) -> dict[str, SimulationResults]:
         """
         Abstract property to get the results of the simulation.
         This should be implemented in subclasses to return simulation results.
@@ -327,7 +326,6 @@ class BaseDataset(ABC):
         This should be implemented in subclasses to return node names.
         """
         raise NotImplementedError("Subclasses must implement node_name_list property.")
-
 
     @staticmethod
     def _return_wntr_element_type(node: Junction | Tank | Reservoir) -> int:
@@ -426,7 +424,7 @@ class BaseDataset(ABC):
         torch.Tensor
             Edge attributes tensor of shape (num_edges, num_features)
         """
-        edge_names = self.edge_names  # Get cached edge names
+        edge_names = self.edge_names
         edge_attrs: list[list[float]] = []
         
         for from_node, to_node in edge_names:
@@ -434,7 +432,7 @@ class BaseDataset(ABC):
             pipe = None
             for p in self.pipes.values():
                 if (p.from_node == from_node and p.to_node == to_node) or \
-                   (not p.check_valve and p.from_node == to_node and p.to_node == from_node):
+                   (p.from_node == to_node and p.to_node == from_node):
                     pipe = p
                     break
             
@@ -488,21 +486,6 @@ class BaseDataset(ABC):
             G.add_edge(pipe.from_node, pipe.to_node)
         
         return G
-
-    def _dist_matrix_original(self) -> torch.Tensor:
-        """
-        Get the distance matrix containing shortest path distances between all node pairs.
-        
-        The distance matrix is computed using NetworkX shortest path algorithms on the
-        underlying water network topology. Distances are topological (hop count).
-        
-        Returns:
-        --------
-        torch.Tensor
-            Symmetric distance matrix of shape (num_nodes, num_nodes) where
-            dist_matrix[i][j] represents the shortest path distance from node i to node j
-        """
-        return self._create_distance_matrix()
     
     def _create_distance_matrix(self) -> torch.Tensor:
         """
@@ -518,7 +501,7 @@ class BaseDataset(ABC):
         """
         # Use cached NetworkX graph
         G = self.networkx_graph
-        node_names = list(self.nodes.keys())
+        node_names = self.node_name_list
         node_to_idx = {name: idx for idx, name in enumerate(node_names)}
         
         n_nodes = len(node_names)
@@ -596,6 +579,15 @@ class BaseDataset(ABC):
             "observed_pressure_mean": [node.observed_pressure_mean for node in self.nodes.values()],
             "observed_pressure_std": [node.observed_pressure_std for node in self.nodes.values()]
         })
+    
+    def plot_graph(self) -> None:
+        """
+        Plot the water network graph using NetworkX.
+        
+        This method visualizes the network topology with nodes and edges.
+        """        
+        nx.draw(self.networkx_graph)
+
 
 
 class Dataset(BaseDataset):
@@ -661,12 +653,12 @@ class Dataset(BaseDataset):
         """
         self.pipes = self.simulator.simulator_without_leaks.pipes
 
-    @property
-    def results(self) -> None:
+    @cached_property
+    def results(self) -> dict[str, SimulationResults]:
         """
         Get the results of the simulation.
         """
-        self.simulator.results
+        return self.simulator.results
 
     @property
     def node_name_list(self) -> list[str]:
@@ -675,46 +667,6 @@ class Dataset(BaseDataset):
         """
         return self.simulator.simulator_without_leaks.node_name_list
 
-
-
-    def _get_edge_paths_tensor_original(self, max_path_length: int | None = None) -> torch.Tensor:
-        """
-        Get edge paths as dense tensor with specified maximum path length.
-        
-        Parameters:
-        -----------
-        max_path_length : int | None, default=None
-            Maximum path length to include in tensor. If None, uses self.max_path_length
-            
-        Returns:
-        --------
-        torch.Tensor
-            Dense tensor of shape (num_nodes, num_nodes, max_path_length)
-            containing edge indices for shortest paths
-        """
-        if max_path_length is None:
-            max_path_length = self.max_path_length
-        return self.edge_paths.to_dense_tensor(max_path_length)
-        """
-        Create mapping from partition node indices to original dataset indices.
-        This allows efficient reuse of computed properties like distance matrices.
-        """
-        if self._original_dataset is None:
-            return
-            
-        # Create mapping: partition_node_idx -> original_node_idx
-        original_node_names = list(self._original_dataset.nodes.keys())
-        partition_node_names = list(self.nodes.keys())
-        
-        original_name_to_idx = {name: idx for idx, name in enumerate(original_node_names)}
-        
-        self._node_index_mapping = []
-        for partition_name in partition_node_names:
-            if partition_name in original_name_to_idx:
-                self._node_index_mapping.append(original_name_to_idx[partition_name])
-            else:
-                raise ValueError(f"Node {partition_name} not found in original dataset")
-    
 
 class PartitionedDataset(BaseDataset):
     """
@@ -725,6 +677,83 @@ class PartitionedDataset(BaseDataset):
     
     """
 
+    def __init__(self, 
+                 partition_node_list: list[str],
+                 original_dataset: Dataset) -> None:
+    
+        """
+        Initialize the PartitionedDataset with a list of node names and the original dataset.
+        Args:
+            partition_node_list (list[str]): List of node names in this partition.
+            original_dataset (Dataset): The original dataset from which this partition is derived.
+        """
+    
+        super().__init__(simulator=original_dataset.simulator,
+                         max_path_length=original_dataset.max_path_length,
+                         max_nodes_for_edge_paths=original_dataset.max_nodes_for_edge_paths)
+        
+        self.partition_node_list: list[str] = partition_node_list
+        self.original_dataset: Dataset = original_dataset
+
+        self._get_nodes()
+        self._get_pipes()
+
+    def _get_nodes(self) -> None:
+        """
+        Get the nodes in this partitioned dataset.
+        
+        Only include nodes that are part of the partition.
+        """
+        self.nodes = {name: self.original_dataset.nodes[name] for name in self.partition_node_list}
+
+    def _get_pipes(self) -> None:
+        """
+        Get the pipes in this partitioned dataset.
+        
+        Only include pipes that connect nodes within the partition.
+        """
+        self.pipes = {}
+        for pipe_name, pipe in self.original_dataset.pipes.items():
+            if pipe.from_node in self.partition_node_list and pipe.to_node in self.partition_node_list:
+                self.pipes[pipe_name] = pipe
+
+    @property
+    def node_name_list(self) -> list[str]:
+        """
+        List of node names in this partitioned dataset.
+        
+        Returns:
+            list[str]: Names of nodes in the partition.
+        """
+        return self.partition_node_list
+
+
+    @cached_property
+    def results(self) -> dict[str, SimulationResults]:
+        """
+        Get the results of the simulation for this partitioned dataset.
+        
+        Returns:
+            dict[str, SimulationResults]: Simulation results for this partition.
+        """
+        # We need to filter the original dataset results to only include nodes in this partition
+        results = deepcopy(self.original_dataset.results)
+
+        for key in ['without_leaks', 'with_leaks']:
+            sim: SimulationResults = results[key]
+            
+            # For each value inside sim.node (head, pressure, etc.)
+            for metric_key, df in sim.node.items():
+                # Filter relevant nodes
+                kep_nodes = [col for col in self.node_name_list if col in df.columns]
+                sim.node[metric_key] = df[kep_nodes]  # Overwride with filtered DataFrame
+
+        return results
+
+
+        
+
+    
 # MISSING
 
 # Sensor Mask: Binary mask indicating which nodes have sensor measurements
